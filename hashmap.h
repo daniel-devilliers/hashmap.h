@@ -147,12 +147,32 @@ typedef struct hashmap_create_options_s {
 extern "C" {
 #endif
 
+/// @brief Create a hashmap on the stack.
+/// @param initial_capacity The initial capacity of the hashmap.
+/// @param out_hashmap The storage for the created hashmap.
+/// @return On success 0 is returned.
+HASHMAP_WEAK int hashmap_create_stacked(const hashmap_uint32_t initial_capacity,
+                                        struct hashmap_s *const out_hashmap);
+
 /// @brief Create a hashmap.
 /// @param initial_capacity The initial capacity of the hashmap.
 /// @param out_hashmap The storage for the created hashmap.
 /// @return On success 0 is returned.
 HASHMAP_WEAK int hashmap_create(const hashmap_uint32_t initial_capacity,
                                 struct hashmap_s *const out_hashmap);
+
+/// @brief Create a hashmap on the stack.
+/// @param options The options to create the hashmap with.
+/// @param out_hashmap The storage for the created hashmap.
+/// @return On success 0 is returned.
+///
+/// The options members work as follows:
+/// - initial_capacity The initial capacity of the hashmap.
+/// - hasher Which hashing function to use with the hashmap (by default the
+//    crc32 with Robert Jenkins' mix is used).
+HASHMAP_WEAK int
+hashmap_create_ex_stacked(struct hashmap_create_options_s options,
+                          struct hashmap_s *const out_hashmap);
 
 /// @brief Create a hashmap.
 /// @param options The options to create the hashmap with.
@@ -282,6 +302,15 @@ HASHMAP_ALWAYS_INLINE hashmap_uint32_t hashmap_clz(const hashmap_uint32_t x);
 #define HASHMAP_NULL 0
 #endif
 
+int hashmap_create_stacked(const hashmap_uint32_t initial_capacity,
+                           struct hashmap_s *const out_hashmap) {
+  struct hashmap_create_options_s options;
+  memset(&options, 0, sizeof(options));
+  options.initial_capacity = initial_capacity;
+
+  return hashmap_create_ex_stacked(options, out_hashmap);
+}
+
 int hashmap_create(const hashmap_uint32_t initial_capacity,
                    struct hashmap_s *const out_hashmap) {
   struct hashmap_create_options_s options;
@@ -289,6 +318,35 @@ int hashmap_create(const hashmap_uint32_t initial_capacity,
   options.initial_capacity = initial_capacity;
 
   return hashmap_create_ex(options, out_hashmap);
+}
+
+int hashmap_create_ex_stacked(struct hashmap_create_options_s options,
+                              struct hashmap_s *const out_hashmap) {
+  if (2 > options.initial_capacity) {
+    options.initial_capacity = 2;
+  } else if (0 != (options.initial_capacity & (options.initial_capacity - 1))) {
+    options.initial_capacity = 1u
+                               << (32 - hashmap_clz(options.initial_capacity));
+  }
+
+  if (HASHMAP_NULL == options.hasher) {
+    options.hasher = &hashmap_crc32_hasher;
+  }
+
+  if (HASHMAP_NULL == options.comparer) {
+    options.comparer = &hashmap_memcmp_comparer;
+  }
+
+  struct hashmap_element_s hashmap_elements[(options.initial_capacity +
+                                             HASHMAP_LINEAR_PROBE_LENGTH)];
+  out_hashmap->data = hashmap_elements;
+
+  out_hashmap->log2_capacity = 31 - hashmap_clz(options.initial_capacity);
+  out_hashmap->size = 0;
+  out_hashmap->hasher = options.hasher;
+  out_hashmap->comparer = options.comparer;
+
+  return 0;
 }
 
 int hashmap_create_ex(struct hashmap_create_options_s options,
